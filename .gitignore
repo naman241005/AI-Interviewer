@@ -1,0 +1,5 @@
+venv310/
+__pycache__/
+.env
+*.pyc
+Interview_Report.pdf

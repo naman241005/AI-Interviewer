@@ -1,0 +1,23 @@
+# ── AI / LLM ────────────────────────────────────────────
+groq
+
+# ── Streamlit (Web UI) ──────────────────────────────────
+streamlit
+
+# ── Environment Variables ───────────────────────────────
+python-dotenv
+
+# ── Resume Parsing ──────────────────────────────────────
+PyPDF2                # PDF text extraction
+pdf2image             # Scanned PDF → image (for OCR)
+pytesseract           # OCR engine wrapper (needs Tesseract installed separately)
+Pillow                # Image handling
+python-docx           # DOCX resume support
+
+# ── PDF Report Generation ───────────────────────────────
+fpdf
+
+# ── Voice / Speech ──────────────────────────────────────
+SpeechRecognition     # Microphone → text (Google STT)
+pyttsx3               # Text → speech (offline TTS)
+pyaudio               # Microphone access (required by SpeechRecognition)
