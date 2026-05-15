@@ -1,31 +1,52 @@
+```python
 import speech_recognition as sr
+import tempfile
+from audio_recorder_streamlit import audio_recorder
+import streamlit as st
 
 
-def listen(timeout: int = 20, phrase_time_limit: int = 120, language: str = "en-IN") -> str:
+def listen(language: str = "en-IN") -> str:
     """
-    Record audio from the microphone and transcribe it.
-    Returns: transcribed text, or one of: TIMEOUT | UNKNOWN | ERROR
+    Record audio from browser microphone and transcribe it.
+    Returns:
+        transcribed text
+        OR TIMEOUT | UNKNOWN | ERROR
     """
+
     recognizer = sr.Recognizer()
-    recognizer.energy_threshold = 300
-    recognizer.dynamic_energy_threshold = True
-    recognizer.pause_threshold = 2.0    # wait 2s of silence before stopping (was 1.0)
-    recognizer.non_speaking_duration = 1.5
+
+    st.info("🎤 Click record and speak your answer")
+
+    audio_bytes = audio_recorder(
+        pause_threshold=2.0,
+        sample_rate=41000
+    )
+
+    if not audio_bytes:
+        return "TIMEOUT"
 
     try:
-        with sr.Microphone() as source:
-            import streamlit as st
-            st.info("🎤 Listening... Speak now (up to 2 minutes)")
-            recognizer.adjust_for_ambient_noise(source, duration=1)
-            audio = recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_time_limit)
-            st.info("🧠 Processing your voice...")
-            return recognizer.recognize_google(audio, language=language)
+        # Save temporary WAV file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
+            temp_audio.write(audio_bytes)
+            temp_audio_path = temp_audio.name
 
-    except sr.WaitTimeoutError:
-        return "TIMEOUT"
+        # Read audio file
+        with sr.AudioFile(temp_audio_path) as source:
+            audio = recognizer.record(source)
+
+        st.info("🧠 Processing your voice...")
+
+        text = recognizer.recognize_google(audio, language=language)
+
+        return text
+
     except sr.UnknownValueError:
         return "UNKNOWN"
+
     except sr.RequestError:
         return "ERROR"
+
     except Exception as e:
         return f"ERROR: {str(e)}"
+```

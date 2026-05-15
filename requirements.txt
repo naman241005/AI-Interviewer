@@ -21,3 +21,4 @@ fpdf
 SpeechRecognition     # Microphone → text (Google STT)
 pyttsx3               # Text → speech (offline TTS)
               # Microphone access (required by SpeechRecognition)
+audio-recorder-streamlit
