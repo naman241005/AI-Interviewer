@@ -1,4 +1,4 @@
-```python
+
 import speech_recognition as sr
 import tempfile
 from audio_recorder_streamlit import audio_recorder
@@ -49,4 +49,3 @@ def listen(language: str = "en-IN") -> str:
 
     except Exception as e:
         return f"ERROR: {str(e)}"
-```
