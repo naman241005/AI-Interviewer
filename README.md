@@ -30,4 +30,4 @@ streamlit run app.py
 - Better UI
 - Emotion detection
 - Multi-language support
-- AI scoring system
+
