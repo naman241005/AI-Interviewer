@@ -1,26 +1,23 @@
 import pyttsx3
+import threading
+
+engine = pyttsx3.init()
+
+engine.setProperty("rate", 165)
+engine.setProperty("volume", 1.0)
+
+speech_lock = threading.Lock()
 
 
-def speak(text: str, lang: str = "en"):
-    """Convert text to speech using the system TTS engine."""
+def speak(text):
+
     try:
-        engine = pyttsx3.init()
-        voices = engine.getProperty("voices")
+        with speech_lock:
 
-        if lang == "hi":
-            for voice in voices:
-                if "hindi" in voice.name.lower():
-                    engine.setProperty("voice", voice.id)
-                    break
-            else:
-                engine.setProperty("voice", voices[0].id)
-        else:
-            engine.setProperty("voice", voices[0].id)
+            engine.stop()
 
-        engine.setProperty("rate", 170)
-        engine.setProperty("volume", 1.0)
-        engine.say(text)
-        engine.runAndWait()
+            engine.say(text)
+            engine.runAndWait()
 
     except Exception as e:
         print(f"TTS Error: {e}")

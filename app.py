@@ -21,7 +21,7 @@ from ai.resume_analyzer import analyze_resume
 # ═══════════════════════════════════════════════════════════════════
 st.set_page_config(
     page_title="HireIQ — AI Interview Coach",
-    layout="wide", 
+    layout="wide",
     page_icon="🎯",
     initial_sidebar_state="collapsed",
 )
@@ -31,11 +31,18 @@ st.set_page_config(
 # CSS INJECTION  — loads from style.css to avoid Streamlit parser bugs
 # ═══════════════════════════════════════════════════════════════════
 def _inject_css():
-    css_path = os.path.join(os.path.dirname(__file__), "style.css")
-    with open(css_path, "r", encoding="utf-8") as f:
-        css = f.read()
-    # Wrap in <style> and inject — this is the most reliable method in Streamlit
-    st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
+    try:
+        css_path = os.path.join(os.path.dirname(__file__), "style.css")
+
+        if os.path.exists(css_path):
+            with open(css_path, "r", encoding="utf-8") as f:
+                css = f.read()
+
+            st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
+
+    except Exception as e:
+        st.warning(f"CSS failed to load: {e}")
+
 
 _inject_css()
 
@@ -47,28 +54,32 @@ OPENING_QUESTIONS = [
     "Tell me about yourself — your background, what you have been working on, and what brings you here today.",
     "What are your key strengths? Give me a real example of how you have applied one of them.",
 ]
-CLOSING_QUESTION = "Finally — why should we hire you? What makes you stand out from other candidates?"
-HIRE_THRESHOLD   = 7.0   # avg score >= this → Congratulations verdict
-INTERVIEW_SECS   = 900   # 15-minute session
+CLOSING_QUESTION = (
+    "Finally — why should we hire you? What makes you stand out from other candidates?"
+)
+HIRE_THRESHOLD = 7.0  # avg score >= this → Congratulations verdict
+INTERVIEW_SECS = 900  # 15-minute session
 
 
 # ═══════════════════════════════════════════════════════════════════
 # SESSION STATE
 # ═══════════════════════════════════════════════════════════════════
 _DEFAULTS = {
-    "page"             : "home",
-    "q_index"          : 0,
-    "spoken"           : False,
-    "results"          : [],
-    "start_time"       : time.time(),
-    "questions"        : [],
-    "memory"           : None,
-    "candidate_name"   : "",
-    "resume_summary"   : "",
-    "enable_followup"  : True,
+    "page": "home",
+    "q_index": 0,
+    "spoken": False,
+    "results": [],
+    "start_time": time.time(),
+    "questions": [],
+    "memory": None,
+    "candidate_name": "",
+    "resume_summary": "",
+    "enable_followup": True,
     "awaiting_followup": False,
-    "followup_q"       : "",
-    "current_answer"   : None,
+    "followup_q": "",
+    "leaderboard_added": False,
+    "last_spoken_question": "",
+    
 }
 for k, v in _DEFAULTS.items():
     if k not in st.session_state:
@@ -87,19 +98,24 @@ def navbar(label: str = ""):
         f"<div class='hiq-navbar'>"
         f"<div class='hiq-logo'>🎯 HireIQ</div>"
         f"<div class='hiq-nav-badge'>{label}</div>"
-        f"</div>", 
-        unsafe_allow_html=True, 
+        f"</div>",
+        unsafe_allow_html=True,
     )
 
 
 def advance():
-    st.session_state.q_index       += 1
-    st.session_state.spoken         = False
+
+    st.session_state.q_index += 1
+    
     st.session_state.awaiting_followup = False
-    st.session_state.followup_q     = ""
-    st.session_state.current_answer = None
+    st.session_state.followup_q = ""
+    st.session_state.last_spoken_question = ""
+
+    # Reset recording states
+
     if st.session_state.q_index >= len(st.session_state.questions):
         st.session_state.page = "report"
+
     st.rerun()
 
 
@@ -107,10 +123,10 @@ def handle_answer(question: str, answer: str, is_followup: bool = False) -> floa
     with st.spinner("Analysing your answer..."):
         try:
             evaluation = evaluate_answer(question, answer)
-            score      = extract_score(evaluation)
+            score = extract_score(evaluation)
         except Exception:
             evaluation = "Evaluation unavailable."
-            score      = 5.0
+            score = 5.0
 
     sc = score_class(score)
     st.markdown(
@@ -124,13 +140,15 @@ def handle_answer(question: str, answer: str, is_followup: bool = False) -> floa
         unsafe_allow_html=True,
     )
     st.session_state.memory.store(question, answer, score, evaluation)
-    st.session_state.results.append({
-        "question"   : question,
-        "answer"     : answer,
-        "score"      : score,
-        "evaluation" : evaluation,
-        "is_followup": is_followup,
-    })
+    st.session_state.results.append(
+        {
+            "question": question,
+            "answer": answer,
+            "score": score,
+            "evaluation": evaluation,
+            "is_followup": is_followup,
+        }
+    )
     return score
 
 
@@ -165,8 +183,8 @@ def home():
             "font-weight:700;margin-bottom:20px;color:#E8EAF0'>Start Your Interview</div>",
             unsafe_allow_html=True,
         )
-        name    = st.text_input("👤 Full Name", placeholder="e.g. Rohan Sharma")
-        resume  = st.file_uploader(
+        name = st.text_input("👤 Full Name", placeholder="e.g. Rohan Sharma")
+        resume = st.file_uploader(
             "📄 Upload Resume  (PDF · DOCX · Image · TXT)",
             type=["pdf", "png", "jpg", "jpeg", "txt", "docx"],
         )
@@ -178,13 +196,15 @@ def home():
                 st.warning("Please enter your name before starting.")
                 return
 
-            st.session_state.candidate_name  = name.strip()
+            st.session_state.candidate_name = name.strip()
             st.session_state.enable_followup = followup
 
             resume_text = ""
             if resume:
                 with st.spinner("Reading resume..."):
                     resume_text = extract_text(resume)
+                    if len(resume_text.strip()) < 20:
+                        st.warning("Resume content seems too short or unreadable.")
 
             if resume_text.strip():
                 with st.spinner("Analysing resume..."):
@@ -193,7 +213,7 @@ def home():
                     except Exception:
                         st.session_state.resume_summary = ""
 
-            with st.spinner("Building your question set..."):
+            with st.spinner("🧠 AI is generating personalized interview questions..."):
                 try:
                     ai_qs = generate_questions(
                         resume_text or "General software engineering interview"
@@ -205,25 +225,28 @@ def home():
                         "Describe your experience working in a team.",
                     ]
 
-            st.session_state.questions     = OPENING_QUESTIONS + ai_qs + [CLOSING_QUESTION]
-            st.session_state.memory        = InterviewMemory()
-            st.session_state.q_index       = 0
-            st.session_state.results       = []
-            st.session_state.spoken        = False
+            st.session_state.questions = OPENING_QUESTIONS + ai_qs + [CLOSING_QUESTION]
+            st.session_state.memory = InterviewMemory()
+            st.session_state.q_index = 0
+            st.session_state.results = []
+            
             st.session_state.awaiting_followup = False
-            st.session_state.followup_q    = ""
-            st.session_state.current_answer = None
-            st.session_state.start_time    = time.time()
-            st.session_state.page          = "interview"
+            st.session_state.followup_q = ""
+            st.session_state.start_time = time.time()
+            st.session_state.page = "interview"
             st.rerun()
 
     # ── Leaderboard preview ────────────────────────────────────
-    st.markdown("<div class='hiq-page-wrap' style='padding-top:40px'>", unsafe_allow_html=True)
-    st.markdown("<div class='hiq-section-title'>🏆 Leaderboard</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='hiq-page-wrap' style='padding-top:40px'>", unsafe_allow_html=True
+    )
+    st.markdown(
+        "<div class='hiq-section-title'>🏆 Leaderboard</div>", unsafe_allow_html=True
+    )
     board = get_leaderboard()
     if board:
         for rank, e in enumerate(board[:8], 1):
-            rc    = {1: "top1", 2: "top2", 3: "top3"}.get(rank, "")
+            rc = {1: "top1", 2: "top2", 3: "top3"}.get(rank, "")
             medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(rank, f"#{rank}")
             st.markdown(
                 f"<div class='hiq-lb-row'>"
@@ -256,12 +279,13 @@ def interview():
         st.rerun()
 
     # Timer
-    elapsed   = int(time.time() - st.session_state.start_time)
+    elapsed = int(time.time() - st.session_state.start_time)
     remaining = max(0, INTERVIEW_SECS - elapsed)
     mins, secs = divmod(remaining, 60)
-    timer_cls  = "hiq-timer-danger" if remaining < 120 else "hiq-timer"
+    timer_cls = "hiq-timer-danger" if remaining < 120 else "hiq-timer"
 
     st.markdown("<div class='hiq-page-wrap'>", unsafe_allow_html=True)
+    # AUTO SKIP IF USER DOES NOTHING
 
     # Progress bar + timer row
     c1, c2 = st.columns([3, 1])
@@ -294,8 +318,12 @@ def interview():
     st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
 
     # ── Follow-up branch ──────────────────────────────────────
+    # ── Follow-up branch ──────────────────────────────────────
+    # ── Follow-up branch ──────────────────────────────────────
     if st.session_state.awaiting_followup:
+
         fq = st.session_state.followup_q
+
         st.markdown(
             f"<div class='hiq-card-accent'>"
             f"<span class='hiq-question-badge badge-followup'>🔁 Follow-up</span><br>"
@@ -303,41 +331,59 @@ def interview():
             unsafe_allow_html=True,
         )
 
-        if not st.session_state.spoken:
-            st.session_state.spoken = True
-            speak(fq)
+        # Speak follow-up question
+        if st.session_state.last_spoken_question != fq:
+            st.session_state.last_spoken_question = fq
+            try:
+                speak(fq)
+            except Exception:
+                st.warning("Voice playback unavailable.")
 
-        st.markdown("<div class='hiq-tip'>Take your time — up to 2 minutes to answer.</div>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='hiq-tip'>Take your time — up to 2 minutes to answer.</div>",
+            unsafe_allow_html=True,
+        )
+
         bc, sc = st.columns([2, 1])
-        with bc:
-            if st.button("🎙 Speak Your Answer"):
-                try:    st.session_state.current_answer = listen()
-                except: st.session_state.current_answer = "ERROR"
+
+        # RECORD BUTTON
         with sc:
-            if st.button("⏭ Skip"):
+
+            if st.button("⏭ Skip Follow-up", key="followup_skip"):
+
+                advance()
+                return
+        with bc:
+            ans=listen()
+
+        
+
+    
+            if ans is None:
+                st.empty()
+                return
+
+            if ans == "TIMEOUT":
+                st.warning("⏭ No speech detected.")
                 advance()
                 return
 
-        ans = st.session_state.current_answer
-        if ans is None:
-            st.markdown("</div>", unsafe_allow_html=True)
-            return
-        st.session_state.current_answer = None
+            if ans in ("UNKNOWN", "ERROR") or "ERROR:" in str(ans):
+                st.warning(
+                    "⚠ Could not understand your voice clearly. "
+                    "Try speaking louder and closer to the microphone."
+                )
+                return
 
-        if ans == "TIMEOUT":
-            st.warning("No speech detected. Skipping...")
+            handle_answer(fq, ans, is_followup=True)
+
             advance()
             return
-        if ans in ("UNKNOWN", "ERROR") or "ERROR:" in str(ans):
-            st.error("Could not understand. Please try again.")
-            return
-
-        handle_answer(fq, ans, is_followup=True)
-        advance()
+        
+        
         return
-
     # ── Main question branch ──────────────────────────────────
-    q   = st.session_state.questions[st.session_state.q_index]
+    q = st.session_state.questions[st.session_state.q_index]
     idx = st.session_state.q_index
 
     if idx < len(OPENING_QUESTIONS):
@@ -354,51 +400,61 @@ def interview():
         unsafe_allow_html=True,
     )
 
-    if not st.session_state.spoken:
-        st.session_state.spoken = True
-        speak(q)
+    if st.session_state.last_spoken_question != q:
+        st.session_state.last_spoken_question = q
+        try:
+            speak(q)
+        except Exception:
+            st.warning("Voice playback unavailable.")
 
-    st.markdown("<div class='hiq-tip'>Take your time — up to 2 minutes to answer.</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='hiq-tip'>Take your time — up to 2 minutes to answer.</div>",
+        unsafe_allow_html=True,
+    )
     bc, sc = st.columns([2, 1])
-    with bc:
-        if st.button("🎙 Speak Your Answer"):
-            try:    st.session_state.current_answer = listen()
-            except: st.session_state.current_answer = "ERROR"
     with sc:
-        if st.button("⏭ Skip Question"):
+        if st.button("⏭ Skip Question", key="main_skip"):
             advance()
             return
+    with bc:
 
-    ans = st.session_state.current_answer
-    if ans is None:
-        st.markdown("</div>", unsafe_allow_html=True)
-        return
-    st.session_state.current_answer = None
+        ans = listen()
 
-    if ans == "TIMEOUT":
-        st.warning("No speech detected. Skipping...")
-        advance()
-        return
-    if ans in ("UNKNOWN", "ERROR") or "ERROR:" in str(ans):
-        st.error("Could not understand. Please try again.")
-        return
+        if ans is None:
+            st.info("Please answer the question clearly.")
+            return
 
-    handle_answer(q, ans)
+        if ans == "TIMEOUT":
+            st.warning("⏭ No speech detected.")
+            return
 
-    if st.session_state.enable_followup:
-        with st.spinner("Generating follow-up question..."):
-            try:
-                fq = generate_followup(q, ans)
-                st.session_state.followup_q        = fq
-                st.session_state.awaiting_followup = True
-                st.session_state.spoken            = False
-                st.rerun()
-            except Exception:
-                advance()
-    else:
-        advance()
+        if ans in ("UNKNOWN", "ERROR") or "ERROR:" in str(ans):
+            st.warning(
+                "⚠ Could not understand your voice clearly. "
+                "Try speaking louder and closer to the microphone."
+            )
+            return
 
-    st.markdown("</div>", unsafe_allow_html=True)
+        handle_answer(q, ans)
+
+        if st.session_state.enable_followup:
+            with st.spinner("Generating follow-up question..."):
+                try:
+                    fq = generate_followup(q, ans)
+
+                    st.session_state.followup_q = fq
+                    st.session_state.awaiting_followup = True
+                    
+                    st.rerun()
+                except Exception as e:
+                    st.warning(f"Follow-up generation failed: {e}")
+                    advance()
+                    
+
+        else:
+            advance()
+
+        
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -408,8 +464,8 @@ def report():
     navbar("Interview Report")
 
     results = st.session_state.results
-    memory  = st.session_state.memory
-    name    = st.session_state.candidate_name
+    memory = st.session_state.memory
+    name = st.session_state.candidate_name
 
     st.markdown("<div class='hiq-page-wrap'>", unsafe_allow_html=True)
 
@@ -421,9 +477,11 @@ def report():
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
-    avg   = memory.average_score() if memory else 0.0
+    avg = memory.average_score() if memory else 0.0
     total = len(results)
     hired = avg >= HIRE_THRESHOLD
+    if hired:
+        st.balloons()
 
     # ── Hire / No-Hire verdict ─────────────────────────────────
     if hired:
@@ -451,12 +509,15 @@ def report():
     # ── Stats row ─────────────────────────────────────────────
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Candidate", name)
-    c2.metric("Avg Score",  f"{avg}/10")
-    c3.metric("Questions",  total)
-    c4.metric("Verdict",    "Hired" if hired else "Not Yet")
+    c2.metric("Avg Score", f"{avg}/10")
+    c3.metric("Questions", total)
+    c4.metric("Verdict", "Hired" if hired else "Not Yet")
 
     st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-    st.markdown("<div class='hiq-section-title'>Detailed Breakdown</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='hiq-section-title'>Detailed Breakdown</div>",
+        unsafe_allow_html=True,
+    )
 
     # ── Per-question cards ─────────────────────────────────────
     for i, r in enumerate(results):
@@ -500,14 +561,20 @@ def report():
         st.warning(f"PDF generation failed: {e}")
 
     # ── Leaderboard ────────────────────────────────────────────
-    add_to_leaderboard(name, avg, total)
+    if not st.session_state.leaderboard_added:
+
+        add_to_leaderboard(name, avg, total)
+
+        st.session_state.leaderboard_added = True
     st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-    st.markdown("<div class='hiq-section-title'>🏆 Leaderboard</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='hiq-section-title'>🏆 Leaderboard</div>", unsafe_allow_html=True
+    )
 
     for rank, e in enumerate(get_leaderboard()[:10], 1):
-        rc    = {1: "top1", 2: "top2", 3: "top3"}.get(rank, "")
+        rc = {1: "top1", 2: "top2", 3: "top3"}.get(rank, "")
         medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(rank, f"#{rank}")
-        hl    = "border-color:rgba(108,99,255,0.5)" if e["name"] == name else ""
+        hl = "border-color:rgba(108,99,255,0.5)" if e["name"] == name else ""
         st.markdown(
             f"<div class='hiq-lb-row' style='{hl}'>"
             f"<div class='hiq-lb-rank {rc}'>{medal}</div>"
@@ -520,8 +587,10 @@ def report():
 
     st.markdown("<div style='height:24px'></div>", unsafe_allow_html=True)
     if st.button("🔄 Start New Interview"):
+        st.session_state.last_spoken_question = ""
         for k, v in _DEFAULTS.items():
             st.session_state[k] = v
+        st.session_state.leaderboard_added = False
         st.session_state.page = "home"
         st.rerun()
 

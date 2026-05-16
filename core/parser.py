@@ -3,6 +3,9 @@ import PyPDF2
 import pytesseract
 from PIL import Image
 import docx
+import pytesseract
+
+pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 # Update this path if Tesseract is installed elsewhere on your machine
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
